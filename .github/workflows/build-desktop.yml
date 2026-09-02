@@ -1,0 +1,39 @@
+name: Build NikziGPT Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            artifact: windows
+          - os: ubuntu-latest
+            target: linux
+            artifact: linux
+          - os: macos-latest
+            target: mac
+            artifact: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --${{ matrix.target }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NikziGPT-${{ matrix.artifact }}
+          path: release/*
+          if-no-files-found: error

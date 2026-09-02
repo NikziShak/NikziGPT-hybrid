@@ -1,0 +1,11 @@
+{
+  "appId": "com.nikzigpt.app",
+  "appName": "NikziGPT",
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

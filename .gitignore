@@ -1,0 +1,14 @@
+node_modules/
+dist/
+release/
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+local.properties
+*.zip
+.github-cli/
+ghcli/
+extracted/
+NikziGPT-github-clean/
+.DS_Store
