@@ -45,14 +45,14 @@ export async function listModels(settings) {
     return [FREE_ROUTER, ...mapped].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  if (!settings.nvidiaKey) return NVIDIA_FALLBACK;
+  if (!settings.nvidiaKey) return [];
   try {
     const response = await fetch(`${cleanBase(settings.nvidiaBase)}/models`, { headers: { Authorization: `Bearer ${settings.nvidiaKey}` } });
     if (!response.ok) throw new Error();
     const json = await response.json();
-    return (json.data || []).map(item => ({ id: item.id, name: item.id, provider: 'NVIDIA API Catalog', description: 'OpenAI-compatible NVIDIA-hosted model; account limits apply.', contextLength: 0, free: false }));
+    return (json.data || []).filter(item => item.id?.endsWith(':free') || (Number(item.pricing?.prompt) === 0 && Number(item.pricing?.completion) === 0)).map(item => ({ id: item.id, name: item.name || item.id, provider: 'NVIDIA API Catalog', description: item.description || 'Zero-priced NVIDIA API model.', contextLength: item.context_length || 0, free: true }));
   } catch {
-    return NVIDIA_FALLBACK;
+    return [];
   }
 }
 
