@@ -2,6 +2,7 @@
   "name": "nikzigpt",
   "private": true,
   "version": "1.0.0",
+  "author": { "name": "NikziGPT", "email": "support@nikzigpt.app" },
   "type": "module",
   "scripts": {
     "dev": "vite",
