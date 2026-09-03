@@ -34,9 +34,9 @@
     "files": ["dist/**/*", "electron/**/*", "package.json"],
     "directories": { "output": "release" },
     "win": {
-      "target": ["nsis", "portable"],
-      "nsis": { "oneClick": true, "allowToChangeInstallationDirectory": false, "perMachine": false }
+      "target": ["nsis", "portable"]
     },
+    "nsis": { "oneClick": true, "allowToChangeInstallationDirectory": false, "perMachine": false },
     "mac": { "target": ["dmg", "zip"] },
     "linux": { "target": ["AppImage", "deb"] }
   }
