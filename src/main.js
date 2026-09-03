@@ -1,5 +1,6 @@
 import './style.css';
 import './enhancements.css';
+import './light-theme.css';
 import { createIcons, Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, Image, Video, Music, WandSparkles, X, Play } from 'lucide';
 import { complete, listModels } from './api.js';
 import { loadState, persist, newChat } from './storage.js';
