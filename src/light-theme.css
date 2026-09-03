@@ -52,5 +52,9 @@ body, .app-shell { background: var(--bg); color: var(--text); }
 .card-icon.green { background: #e2f3ec; color: #216b52; }
 .error { background: #ffebee; border-color: #ef9a9a; color: #8b1e2d; }
 .scrim { background: rgba(30,32,40,.28); }
+.upload-progress { display:flex; align-items:center; gap:8px; flex:1 1 100%; padding:6px 8px; color:var(--muted); font-size:11px; }
+.upload-progress span { display:flex; align-items:center; gap:5px; white-space:nowrap; }
+.upload-progress progress { flex:1; min-width:80px; height:6px; accent-color:var(--accent); }
+.upload-progress b { color:var(--accent2); font-size:10px; }
 .app-shell, .sidebar, .topbar, .page-header, .composer-wrap, .composer { box-shadow: none !important; }
 .app-shell { background-image: none !important; }

@@ -1,13 +1,13 @@
 import './style.css';
 import './enhancements.css';
 import './light-theme.css';
-import { createIcons, Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, Image, Video, Music, WandSparkles, X, Play } from 'lucide';
+import { createIcons, Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, FileSpreadsheet, Presentation, Image, Video, Music, X } from 'lucide';
 import { complete, listModels } from './api.js';
 import { loadState, persist, newChat } from './storage.js';
 
-const iconSet = { Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, Image, Video, Music, WandSparkles, X, Play };
+const iconSet = { Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, FileSpreadsheet, Presentation, Image, Video, Music, X };
 const root = document.querySelector('#app');
-const state = { ...loadState(), view: 'chat', drawer: innerWidth >= 900, models: [], modelSearch: '', loadingModels: false, generating: false, error: '', aborter: null, attachments: [], skills: JSON.parse(localStorage.getItem('nikzigpt.skills') || '[]'), agents: JSON.parse(localStorage.getItem('nikzigpt.agents') || '[]') };
+const state = { ...loadState(), view: 'chat', drawer: innerWidth >= 900, models: [], modelSearch: '', loadingModels: false, generating: false, error: '', aborter: null, attachments: [], uploading: null };
 
 const activeChat = () => state.chats.find(chat => chat.id === state.activeId) || state.chats[0];
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
@@ -26,7 +26,6 @@ function renderSidebar() {
     <nav class="history">${state.chats.map(chat => `<button class="history-item ${chat.id === state.activeId ? 'active' : ''}" data-chat="${chat.id}">
       ${icon('message-square')}<span>${esc(compact(chat.title))}</span><span class="delete" data-delete="${chat.id}">${icon('trash-2', 'Delete')}</span>
     </button>`).join('')}</nav>
-    <button class="settings-link" data-view="studio">${icon('wand-sparkles')}<span>Skills & Agents</span><small>Build</small></button>
     <button class="settings-link" data-view="settings">${icon('settings')}<span>Settings</span><small>${providerLabel()}</small></button>
   </aside>`;
 }
@@ -44,7 +43,8 @@ function renderMessage(message) {
 function renderChat() {
   const chat = activeChat();
   const empty = chat.messages.length === 0;
-  const attachmentChips = state.attachments.length ? `<div class="attachments">${state.attachments.map((file, index) => `<span class="attachment-chip">${icon(file.kind === 'image' ? 'image' : file.kind === 'video' ? 'video' : file.kind === 'audio' ? 'music' : 'file-text')} ${esc(file.name)}<button type="button" data-remove-attachment="${index}">${icon('x')}</button></span>`).join('')}</div>` : '';
+  const fileIcon = file => file.kind === 'image' ? 'image' : file.kind === 'video' ? 'video' : file.kind === 'audio' ? 'music' : /\.(xls|xlsx|csv)$/i.test(file.name) ? 'file-spreadsheet' : /\.(ppt|pptx)$/i.test(file.name) ? 'presentation' : 'file-text';
+  const attachmentChips = state.attachments.length || state.uploading ? `<div class="attachments">${state.attachments.map((file, index) => `<span class="attachment-chip">${icon(fileIcon(file))}<span>${esc(file.name)}</span><button type="button" data-remove-attachment="${index}">${icon('x')}</button></span>`).join('')}${state.uploading ? `<div class="upload-progress"><span>${icon('paperclip')} Uploading ${esc(state.uploading.name)}</span><progress value="${state.uploading.progress}" max="100"></progress><b>${state.uploading.progress}%</b></div>` : ''}</div>` : '';
   return `<main class="main">
     <header class="topbar"><button class="icon-btn" data-action="drawer">${icon('menu', 'Menu')}</button>
       <button class="model-pill" data-view="models"><span class="status-dot"></span><span><small>${providerLabel()}</small>${esc(compact(modelLabel()))}</span><span class="chevron">⌄</span></button>
@@ -102,7 +102,7 @@ function renderStudio() {
 
 function render() {
   document.documentElement.dataset.theme = 'light';
-  root.innerHTML = `<div class="app-shell">${renderSidebar()}${state.view === 'chat' ? renderChat() : state.view === 'models' ? renderModels() : state.view === 'settings' ? renderSettings() : renderStudio()}${state.drawer ? '<button class="scrim" data-action="drawer" aria-label="Close menu"></button>' : ''}</div>`;
+  root.innerHTML = `<div class="app-shell">${renderSidebar()}${state.view === 'chat' ? renderChat() : state.view === 'models' ? renderModels() : renderSettings()}${state.drawer ? '<button class="scrim" data-action="drawer" aria-label="Close menu"></button>' : ''}</div>`;
   createIcons({ icons: iconSet, attrs: { 'stroke-width': 1.8 } });
   bind();
   if (state.view === 'chat') requestAnimationFrame(() => { const el = document.querySelector('#conversation'); if (el) el.scrollTop = el.scrollHeight; });
@@ -139,7 +139,8 @@ async function sendPrompt(value) {
   const images = files.filter(file => file.dataUrl).map(file => ({ type: 'image_url', image_url: { url: file.dataUrl } }));
   if (requestUser) requestUser.content = images.length ? [{ type: 'text', text: modelText }, ...images] : modelText;
   try {
-    await complete(state.settings, context, token => { target.content += token; persist(state); render(); }, state.aborter.signal);
+    let lastPaint = 0;
+    await complete(state.settings, context, token => { target.content += token; persist(state); if (Date.now() - lastPaint > 60) { lastPaint = Date.now(); render(); } }, state.aborter.signal);
     if (!target.content) target.content = 'The provider returned an empty response.';
   } catch (error) {
     if (error.name !== 'AbortError') {
@@ -186,7 +187,7 @@ function bind() {
   root.querySelector('[data-action="clear-error"]')?.addEventListener('click', () => { state.error = ''; render(); });
   root.querySelector('[data-action="stop"]')?.addEventListener('click', () => state.aborter?.abort());
   root.querySelector('[data-action="refresh-models"]')?.addEventListener('click', refreshModels);
-  root.querySelector('[data-action="attach"]')?.addEventListener('click', () => { const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.json,image/*,video/*,audio/*'; input.onchange = async () => { for (const file of [...input.files]) { const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'file'; const item = { name: file.name, type: file.type, kind }; if (kind === 'image') item.dataUrl = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(file); }); else if (file.type.startsWith('text/') || /\.(csv|json|md)$/i.test(file.name)) item.extracted = (await file.text()).slice(0, 120000); else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) { const raw = new TextDecoder().decode(await file.arrayBuffer()).replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' '); item.extracted = `PDF text extracted for ${file.name}: ${raw.slice(0, 60000)}`; } else item.extracted = `Binary ${kind} attachment: ${file.name}. Use the attached file context and explain if the selected model cannot inspect this format.`; state.attachments.push(item); } render(); }; input.click(); });
+  root.querySelector('[data-action="attach"]')?.addEventListener('click', () => { const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.json,image/*,video/*,audio/*'; input.onchange = async () => { const files = [...input.files]; for (const [index, file] of files.entries()) { state.uploading = { name: file.name, progress: 0 }; render(); const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'file'; const item = { name: file.name, type: file.type, kind, size: file.size }; try { if (kind === 'image') item.dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onprogress = event => { if (event.lengthComputable) { state.uploading.progress = Math.round(event.loaded / event.total * 100); render(); } }; reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); else if (file.type.startsWith('text/') || /\.(csv|json|md)$/i.test(file.name)) item.extracted = (await file.text()).slice(0, 120000); else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) { const raw = new TextDecoder().decode(await file.arrayBuffer()).replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' '); item.extracted = raw.slice(0, 60000); } else item.extracted = `Attachment ${file.name} (${file.type || kind}, ${file.size} bytes).`; state.attachments.push(item); } catch { state.error = `Could not read ${file.name}.`; } state.uploading = index < files.length - 1 ? { name: files[index + 1].name, progress: 0 } : null; render(); } }; input.click(); });
   root.querySelector('[data-action="url"]')?.addEventListener('click', () => { const url = window.prompt('Paste a URL to include in your prompt'); if (url?.trim()) { const prompt = root.querySelector('#prompt'); prompt.value = `${prompt.value} ${url.trim()}`.trim(); prompt.focus(); } });
   root.querySelectorAll('[data-remove-attachment]').forEach(el => el.onclick = () => { state.attachments.splice(Number(el.dataset.removeAttachment), 1); render(); });
   root.querySelector('[data-action="new-skill"]')?.addEventListener('click', () => { const name = window.prompt('Skill name'); if (!name) return; const instructions = window.prompt('What should this skill do?') || ''; state.skills.push({ name, instructions }); localStorage.setItem('nikzigpt.skills', JSON.stringify(state.skills)); render(); });
