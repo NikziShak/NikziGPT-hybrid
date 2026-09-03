@@ -124,7 +124,7 @@ function createConversation() {
 
 async function sendPrompt(value) {
   const files = state.attachments.splice(0);
-  const attachmentNote = files.length ? `\n\n[Attachments: ${files.map(file => `${file.name} (${file.type || file.kind})`).join(', ')}]` : '';
+  const attachmentNote = files.length ? `\n\n[Attachments: ${files.map(file => `${file.name} (${file.type || file.kind})${file.extracted ? `\n${file.extracted}` : ''}`).join(', ')}]` : '';
   const text = `${value.trim()}${attachmentNote}`.trim(); if (!text || state.generating) { state.attachments.push(...files); return; }
   const chat = activeChat();
   if (chat.messages.length === 0) chat.title = text.replace(/\s+/g,' ').slice(0, 48);
@@ -132,6 +132,9 @@ async function sendPrompt(value) {
   state.generating = true; state.error = ''; state.aborter = new AbortController(); persist(state); render();
   const target = chat.messages.at(-1);
   const context = chat.messages.slice(0, -1).map(({ role, content }) => ({ role, content }));
+  const requestUser = context.at(-1);
+  const images = files.filter(file => file.dataUrl).map(file => ({ type: 'image_url', image_url: { url: file.dataUrl } }));
+  if (requestUser && images.length) requestUser.content = [{ type: 'text', text }, ...images];
   try {
     await complete(state.settings, context, token => { target.content += token; persist(state); render(); }, state.aborter.signal);
     if (!target.content) target.content = 'The provider returned an empty response.';
@@ -166,7 +169,7 @@ function bind() {
   root.querySelector('[data-action="clear-error"]')?.addEventListener('click', () => { state.error = ''; render(); });
   root.querySelector('[data-action="stop"]')?.addEventListener('click', () => state.aborter?.abort());
   root.querySelector('[data-action="refresh-models"]')?.addEventListener('click', refreshModels);
-  root.querySelector('[data-action="attach"]')?.addEventListener('click', () => { const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,image/*,video/*,audio/*'; input.onchange = () => { [...input.files].forEach(file => { const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'file'; state.attachments.push({ name: file.name, type: file.type, kind }); }); render(); }; input.click(); });
+  root.querySelector('[data-action="attach"]')?.addEventListener('click', () => { const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.json,image/*,video/*,audio/*'; input.onchange = async () => { for (const file of [...input.files]) { const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'file'; const item = { name: file.name, type: file.type, kind }; if (kind === 'image') item.dataUrl = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(file); }); else if (file.type.startsWith('text/') || /\.(csv|json|md)$/i.test(file.name)) item.extracted = (await file.text()).slice(0, 120000); else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) { const raw = new TextDecoder().decode(await file.arrayBuffer()).replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' '); item.extracted = `PDF text extracted for ${file.name}: ${raw.slice(0, 60000)}`; } else item.extracted = `Binary ${kind} attachment: ${file.name}. Use the attached file context and explain if the selected model cannot inspect this format.`; state.attachments.push(item); } render(); }; input.click(); });
   root.querySelector('[data-action="url"]')?.addEventListener('click', () => { const url = window.prompt('Paste a URL to include in your prompt'); if (url?.trim()) { const prompt = root.querySelector('#prompt'); prompt.value = `${prompt.value} ${url.trim()}`.trim(); prompt.focus(); } });
   root.querySelectorAll('[data-remove-attachment]').forEach(el => el.onclick = () => { state.attachments.splice(Number(el.dataset.removeAttachment), 1); render(); });
   root.querySelector('[data-action="new-skill"]')?.addEventListener('click', () => { const name = window.prompt('Skill name'); if (!name) return; const instructions = window.prompt('What should this skill do?') || ''; state.skills.push({ name, instructions }); localStorage.setItem('nikzigpt.skills', JSON.stringify(state.skills)); render(); });
