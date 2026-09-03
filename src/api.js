@@ -35,12 +35,21 @@ export async function listModels(settings) {
   } catch {
     return [];
   }
+
+  if (settings.provider === 'huggingface') {
+    if (!settings.huggingfaceKey) return [];
+    const response = await fetch('https://huggingface.co/api/models?pipeline_tag=text-generation&sort=downloads&direction=-1&limit=100', { headers: { Authorization: `Bearer ${settings.huggingfaceKey}` } });
+    if (!response.ok) throw new Error(await errorText(response) || `Hugging Face catalog request failed (${response.status})`);
+    const json = await response.json();
+    return (json || []).map(item => ({ id: item.id, name: item.id, provider: 'Hugging Face', description: item.description || `Hugging Face text-generation model · ${Number(item.downloads || 0).toLocaleString()} downloads`, contextLength: 0, free: false }));
+  }
 }
 
 export async function complete(settings, messages, onToken, signal) {
-  const key = settings.provider === 'openrouter' ? settings.openrouterKey : settings.nvidiaKey;
-  if (!key) throw new Error(`Add your ${settings.provider === 'openrouter' ? 'OpenRouter' : 'NVIDIA'} API key in Settings.`);
-  const base = settings.provider === 'openrouter' ? settings.openrouterBase : settings.nvidiaBase;
+  const key = settings.provider === 'openrouter' ? settings.openrouterKey : settings.provider === 'nvidia' ? settings.nvidiaKey : settings.huggingfaceKey;
+  const label = settings.provider === 'openrouter' ? 'OpenRouter' : settings.provider === 'nvidia' ? 'NVIDIA' : 'Hugging Face';
+  if (!key) throw new Error(`Add your ${label} API key in Settings.`);
+  const base = settings.provider === 'openrouter' ? settings.openrouterBase : settings.provider === 'nvidia' ? settings.nvidiaBase : settings.huggingfaceBase;
   const model = settings.model;
   const payloadMessages = settings.systemPrompt.trim()
     ? [{ role: 'system', content: settings.systemPrompt.trim() }, ...messages]

@@ -8,13 +8,15 @@ export const defaults = {
   provider: 'openrouter',
   openrouterKey: '',
   nvidiaKey: '',
+  huggingfaceKey: '',
   openrouterBase: 'https://openrouter.ai/api/v1',
   nvidiaBase: 'https://integrate.api.nvidia.com/v1',
-  model: 'openrouter/free',
+  huggingfaceBase: 'https://router.huggingface.co/v1',
+  model: '',
   temperature: 0.7,
   maxTokens: 2048,
   systemPrompt: 'You are NikziGPT, a clear and helpful AI assistant.',
-  theme: 'dark'
+  theme: 'light'
 };
 
 const parse = (key, fallback) => {

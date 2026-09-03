@@ -11,7 +11,7 @@ const state = { ...loadState(), view: 'chat', drawer: innerWidth >= 900, models:
 
 const activeChat = () => state.chats.find(chat => chat.id === state.activeId) || state.chats[0];
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
-const providerLabel = () => state.settings.provider === 'openrouter' ? 'OpenRouter' : 'NVIDIA';
+const providerLabel = () => state.settings.provider === 'openrouter' ? 'OpenRouter' : state.settings.provider === 'nvidia' ? 'NVIDIA' : 'Hugging Face';
 const modelLabel = () => state.models.find(m => m.id === state.settings.model)?.name || state.settings.model?.split('/').pop() || 'Choose model';
 const compact = value => value.length > 30 ? `${value.slice(0, 29)}…` : value;
 
@@ -78,9 +78,9 @@ function renderSettings() {
   return `<main class="page"><header class="page-header"><button class="icon-btn" data-view="chat">${icon('arrow-left','Back')}</button><div><h2>Settings</h2><p>Providers and generation</p></div><span></span></header>
     <form class="page-content settings-form" id="settings-form">
       <section><div class="section-title"><h3>AI provider</h3><p>Choose where prompts are processed.</p></div><div class="segmented">
-        <button type="button" data-provider="openrouter" class="${s.provider === 'openrouter' ? 'active' : ''}">OpenRouter</button><button type="button" data-provider="nvidia" class="${s.provider === 'nvidia' ? 'active' : ''}">NVIDIA</button></div>
-        <label><span>${s.provider === 'openrouter' ? 'OpenRouter' : 'NVIDIA'} API key</span><input name="apiKey" type="password" autocomplete="off" value="${esc(s.provider === 'openrouter' ? s.openrouterKey : s.nvidiaKey)}" placeholder="${s.provider === 'openrouter' ? 'sk-or-v1-…' : 'nvapi-…'}" /><small>Saved only on this device. Treat this device as trusted.</small></label>
-        <label><span>API base URL</span><input name="baseUrl" value="${esc(s.provider === 'openrouter' ? s.openrouterBase : s.nvidiaBase)}" /></label>
+        <button type="button" data-provider="openrouter" class="${s.provider === 'openrouter' ? 'active' : ''}">OpenRouter</button><button type="button" data-provider="nvidia" class="${s.provider === 'nvidia' ? 'active' : ''}">NVIDIA</button><button type="button" data-provider="huggingface" class="${s.provider === 'huggingface' ? 'active' : ''}">Hugging Face</button></div>
+        <label><span>${providerLabel()} API key</span><input name="apiKey" type="password" autocomplete="off" value="${esc(s.provider === 'openrouter' ? s.openrouterKey : s.provider === 'nvidia' ? s.nvidiaKey : s.huggingfaceKey)}" placeholder="${s.provider === 'openrouter' ? 'sk-or-v1-…' : s.provider === 'nvidia' ? 'nvapi-…' : 'hf_…'}" /><small>Saved only on this device. Treat this device as trusted.</small></label>
+        <label><span>API base URL</span><input name="baseUrl" value="${esc(s.provider === 'openrouter' ? s.openrouterBase : s.provider === 'nvidia' ? s.nvidiaBase : s.huggingfaceBase)}" /></label>
       </section>
       <section><div class="section-title"><h3>Generation</h3><p>Fine-tune how responses are written.</p></div>
         <label><span>Temperature <output id="temp-output">${Number(s.temperature).toFixed(1)}</output></span><input name="temperature" id="temperature" type="range" min="0" max="2" step="0.1" value="${s.temperature}" /></label>
@@ -136,8 +136,27 @@ async function sendPrompt(value) {
     await complete(state.settings, context, token => { target.content += token; persist(state); render(); }, state.aborter.signal);
     if (!target.content) target.content = 'The provider returned an empty response.';
   } catch (error) {
-    if (error.name !== 'AbortError') { state.error = error.message || 'Could not complete the request.'; if (!target.content) chat.messages.pop(); }
+    if (error.name !== 'AbortError') {
+      const message = error.message || 'Could not complete the request.';
+      if (/quota|rate.?limit|limit|exhaust|credit|429|too many/i.test(message) && state.models.length > 1) {
+        const current = state.models.findIndex(model => model.id === state.settings.model);
+        const next = state.models[(current + 1) % state.models.length];
+        state.settings.model = next.id;
+        state.error = `Limit reached for the previous model. Switched to ${next.name}. Handover saved locally.`;
+        await saveHandover(chat, message, next.name);
+      } else state.error = message;
+      if (!target.content) chat.messages.pop();
+    }
   } finally { state.generating = false; state.aborter = null; persist(state); render(); }
+}
+
+async function saveHandover(chat, reason, nextModel) {
+  const transcript = chat.messages.filter(item => item.content).map(item => `### ${item.role === 'user' ? 'User' : 'NikziGPT'}\n\n${item.content}`).join('\n\n');
+  const markdown = `# NikziGPT Handover\n\n_Last updated: ${new Date().toISOString()}_\n\n## Continuation context\n\nProvider: ${providerLabel()}\nNext model: ${nextModel}\nReason: ${reason}\n\n## Conversation\n\n${transcript || 'No completed messages yet.'}\n\n## Resume instructions\n\nContinue from the conversation above. Preserve user intent, avoid repeating completed work, and clearly state any assumptions.\n`;
+  if (window.nikziDesktop?.saveHandover) { try { await window.nikziDesktop.saveHandover(markdown); return; } catch { /* browser fallback */ } }
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'handover.md'; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
 function bind() {
@@ -162,7 +181,7 @@ function bind() {
   const search = root.querySelector('#model-search'); if (search) search.oninput = () => { state.modelSearch = search.value; render(); root.querySelector('#model-search')?.focus(); };
   root.querySelectorAll('[data-provider]').forEach(el => el.onclick = () => { state.settings.provider = el.dataset.provider; state.settings.model = ''; state.models = []; render(); });
   const temp = root.querySelector('#temperature'); if (temp) temp.oninput = () => { root.querySelector('#temp-output').value = Number(temp.value).toFixed(1); };
-  const form = root.querySelector('#settings-form'); if (form) form.onsubmit = event => { event.preventDefault(); const data = new FormData(form); if (state.settings.provider === 'openrouter') { state.settings.openrouterKey = data.get('apiKey').trim(); state.settings.openrouterBase = data.get('baseUrl').trim(); } else { state.settings.nvidiaKey = data.get('apiKey').trim(); state.settings.nvidiaBase = data.get('baseUrl').trim(); } state.settings.temperature = Number(data.get('temperature')); state.settings.maxTokens = Number(data.get('maxTokens')); state.settings.systemPrompt = data.get('systemPrompt').trim(); state.models = []; state.view = 'models'; persist(state); render(); refreshModels(); };
+  const form = root.querySelector('#settings-form'); if (form) form.onsubmit = event => { event.preventDefault(); const data = new FormData(form); if (state.settings.provider === 'openrouter') { state.settings.openrouterKey = data.get('apiKey').trim(); state.settings.openrouterBase = data.get('baseUrl').trim(); } else if (state.settings.provider === 'nvidia') { state.settings.nvidiaKey = data.get('apiKey').trim(); state.settings.nvidiaBase = data.get('baseUrl').trim(); } else { state.settings.huggingfaceKey = data.get('apiKey').trim(); state.settings.huggingfaceBase = data.get('baseUrl').trim(); } state.settings.temperature = Number(data.get('temperature')); state.settings.maxTokens = Number(data.get('maxTokens')); state.settings.systemPrompt = data.get('systemPrompt').trim(); state.models = []; state.view = 'models'; persist(state); render(); refreshModels(); };
   const composer = root.querySelector('#composer'); if (composer) composer.onsubmit = event => { event.preventDefault(); sendPrompt(root.querySelector('#prompt').value); };
   const prompt = root.querySelector('#prompt'); if (prompt) { prompt.oninput = () => { prompt.style.height = 'auto'; prompt.style.height = `${Math.min(prompt.scrollHeight, 160)}px`; }; prompt.onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendPrompt(prompt.value); } }; }
 }

@@ -1,4 +1,5 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const createWindow = () => {
@@ -7,11 +8,12 @@ const createWindow = () => {
     height: 820,
     minWidth: 760,
     minHeight: 560,
-    backgroundColor: '#0b0c0f',
+    backgroundColor: '#f8f9fd',
     title: 'NikziGPT',
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false
     }
   });
@@ -21,6 +23,13 @@ const createWindow = () => {
     return { action: 'deny' };
   });
 };
+
+ipcMain.handle('save-handover', async (_event, markdown) => {
+  const file = path.join(app.getPath('documents'), 'NikziGPT', 'handover.md');
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, String(markdown || ''), 'utf8');
+  return file;
+});
 
 app.whenReady().then(() => {
   createWindow();
