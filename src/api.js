@@ -26,7 +26,8 @@ export async function listModels(settings) {
     })).sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  if (!settings.nvidiaKey) return [];
+  if (settings.provider === 'nvidia') {
+    if (!settings.nvidiaKey) return [];
   try {
     const response = await fetch(`${cleanBase(settings.nvidiaBase)}/models`, { headers: { Authorization: `Bearer ${settings.nvidiaKey}` } });
     if (!response.ok) throw new Error();
@@ -34,6 +35,7 @@ export async function listModels(settings) {
     return (json.data || []).map(item => ({ id: item.id, name: item.name || item.id, provider: 'NVIDIA API Catalog', description: item.description || 'Available through NVIDIA API Catalog; account limits apply.', contextLength: item.context_length || 0, free: item.id?.endsWith(':free') || (Number(item.pricing?.prompt) === 0 && Number(item.pricing?.completion) === 0) }));
   } catch {
     return [];
+  }
   }
 
   if (settings.provider === 'huggingface') {
