@@ -1,10 +1,10 @@
 import './style.css';
 import './enhancements.css';
-import { createIcons, Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, Image, Video, Music, WandSparkles, Sun, Moon, X, Play } from 'lucide';
+import { createIcons, Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, Image, Video, Music, WandSparkles, X, Play } from 'lucide';
 import { complete, listModels } from './api.js';
 import { loadState, persist, newChat } from './storage.js';
 
-const iconSet = { Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, Image, Video, Music, WandSparkles, Sun, Moon, X, Play };
+const iconSet = { Menu, Plus, Settings, Bot, Send, Square, ArrowLeft, RefreshCw, Search, Check, Trash2, MessageSquare, Sparkles, Copy, PanelLeftClose, Paperclip, FileText, Image, Video, Music, WandSparkles, X, Play };
 const root = document.querySelector('#app');
 const state = { ...loadState(), view: 'chat', drawer: innerWidth >= 900, models: [], modelSearch: '', loadingModels: false, generating: false, error: '', aborter: null, attachments: [], skills: JSON.parse(localStorage.getItem('nikzigpt.skills') || '[]'), agents: JSON.parse(localStorage.getItem('nikzigpt.agents') || '[]') };
 
@@ -50,7 +50,7 @@ function renderChat() {
       <button class="icon-btn" data-action="new-chat">${icon('plus', 'New chat')}</button>
     </header>
     <section class="conversation" id="conversation">
-      ${empty ? `<div class="welcome"><div class="hero-mark"><img src="./nikzigpt-logo.png" alt="" /></div><p class="eyebrow">NIKZIGPT</p><h1>What can I help you explore?</h1><p>Ask a question, draft something, analyze an idea, or write code with your choice of free AI models.</p>
+      ${empty ? `<div class="welcome"><div class="hero-mark"><img src="./nikzigpt-logo.png" alt="" /></div><p class="eyebrow">NIKZIGPT</p><h1>What can I help you explore?</h1><p>Ask a question, draft something, analyze an idea, or write code with any model available through your API key.</p>
         <div class="suggestions">${['Explain a complex idea simply','Help me write better code','Brainstorm a creative project','Summarize a topic for me'].map(x => `<button data-prompt="${esc(x)}">${esc(x)} <span>↗</span></button>`).join('')}</div></div>` : `<div class="messages">${chat.messages.map(renderMessage).join('')}${state.generating && chat.messages.at(-1)?.content === '' ? '<div class="thinking"><span></span><span></span><span></span></div>' : ''}</div>`}
     </section>
     <div class="composer-wrap">${state.error ? `<div class="error"><span>${esc(state.error)}</span><button data-action="clear-error">×</button></div>` : ''}
@@ -66,7 +66,7 @@ function renderModels() {
   const filtered = state.models.filter(m => !query || `${m.name} ${m.id} ${m.provider}`.toLowerCase().includes(query));
   return `<main class="page"><header class="page-header"><button class="icon-btn" data-view="chat">${icon('arrow-left','Back')}</button><div><h2>Choose a model</h2><p>${providerLabel()} · ${filtered.length} available</p></div><button class="icon-btn ${state.loadingModels ? 'spin' : ''}" data-action="refresh-models">${icon('refresh-cw','Refresh')}</button></header>
     <div class="page-content narrow"><label class="search">${icon('search')}<input id="model-search" value="${esc(state.modelSearch)}" placeholder="Search models" /></label>
-      ${state.settings.provider === 'nvidia' ? '<div class="notice">Only NVIDIA models explicitly reported as zero-priced are shown. If the catalog does not expose pricing, no models are listed.</div>' : '<div class="notice green">Only zero-priced OpenRouter models are shown, including the automatic Free Models Router.</div>'}
+      <div class="notice green">All models returned by the selected provider are shown. Usage and billing follow your API account.</div>
       <div class="model-list">${state.loadingModels ? '<div class="loader"></div>' : filtered.map(model => `<button class="model-card ${model.id === state.settings.model ? 'selected' : ''}" data-model="${esc(model.id)}">
         <div class="model-icon">${model.provider.toLowerCase().includes('nvidia') ? 'NV' : model.provider.slice(0,2).toUpperCase()}</div><div><strong>${esc(model.name)}</strong><small>${esc(model.provider)}${model.contextLength ? ` · ${(model.contextLength/1000).toFixed(0)}K context` : ''}</small><p>${esc(model.description || model.id)}</p></div>${model.id === state.settings.model ? icon('check') : ''}</button>`).join('') || '<div class="empty-list">No models match your search.</div>'}</div>
     </div></main>`;
@@ -86,8 +86,7 @@ function renderSettings() {
         <label><span>Maximum output tokens</span><input name="maxTokens" type="number" min="64" max="32768" value="${s.maxTokens}" /></label>
         <label><span>System prompt</span><textarea name="systemPrompt" rows="5">${esc(s.systemPrompt)}</textarea></label>
       </section>
-      <label class="theme-row"><span>Appearance</span><button type="button" class="theme-toggle" data-action="theme">${s.theme === 'light' ? icon('sun') + ' Light mode' : icon('moon') + ' Dark mode'}</button></label>
-      <button class="primary" type="submit">Save settings</button><p class="form-note">Changing provider refreshes its model catalog. OpenRouter free models may have daily rate limits.</p>
+      <button class="primary" type="submit">Save settings</button><p class="form-note">Changing provider refreshes its complete model catalog. Usage and billing follow your provider account.</p>
     </form></main>`;
 }
 
@@ -101,7 +100,7 @@ function renderStudio() {
 }
 
 function render() {
-  document.documentElement.dataset.theme = state.settings.theme || 'dark';
+  document.documentElement.dataset.theme = 'light';
   root.innerHTML = `<div class="app-shell">${renderSidebar()}${state.view === 'chat' ? renderChat() : state.view === 'models' ? renderModels() : state.view === 'settings' ? renderSettings() : renderStudio()}${state.drawer ? '<button class="scrim" data-action="drawer" aria-label="Close menu"></button>' : ''}</div>`;
   createIcons({ icons: iconSet, attrs: { 'stroke-width': 1.8 } });
   bind();
@@ -147,7 +146,6 @@ function bind() {
   root.querySelector('[data-action="clear-error"]')?.addEventListener('click', () => { state.error = ''; render(); });
   root.querySelector('[data-action="stop"]')?.addEventListener('click', () => state.aborter?.abort());
   root.querySelector('[data-action="refresh-models"]')?.addEventListener('click', refreshModels);
-  root.querySelector('[data-action="theme"]')?.addEventListener('click', () => { state.settings.theme = state.settings.theme === 'light' ? 'dark' : 'light'; persist(state); render(); });
   root.querySelector('[data-action="attach"]')?.addEventListener('click', () => { const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,image/*,video/*,audio/*'; input.onchange = () => { [...input.files].forEach(file => { const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'file'; state.attachments.push({ name: file.name, type: file.type, kind }); }); render(); }; input.click(); });
   root.querySelector('[data-action="url"]')?.addEventListener('click', () => { const url = window.prompt('Paste a URL to include in your prompt'); if (url?.trim()) { const prompt = root.querySelector('#prompt'); prompt.value = `${prompt.value} ${url.trim()}`.trim(); prompt.focus(); } });
   root.querySelectorAll('[data-remove-attachment]').forEach(el => el.onclick = () => { state.attachments.splice(Number(el.dataset.removeAttachment), 1); render(); });
@@ -161,7 +159,7 @@ function bind() {
   root.querySelectorAll('[data-copy]').forEach(el => el.onclick = async () => { const msg = activeChat().messages.find(m => m.id === el.dataset.copy); if (msg) await navigator.clipboard.writeText(msg.content); });
   root.querySelectorAll('[data-model]').forEach(el => el.onclick = () => { state.settings.model = el.dataset.model; state.view = 'chat'; persist(state); render(); });
   const search = root.querySelector('#model-search'); if (search) search.oninput = () => { state.modelSearch = search.value; render(); root.querySelector('#model-search')?.focus(); };
-  root.querySelectorAll('[data-provider]').forEach(el => el.onclick = () => { state.settings.provider = el.dataset.provider; state.settings.model = el.dataset.provider === 'openrouter' ? 'openrouter/free' : ''; state.models = []; render(); });
+  root.querySelectorAll('[data-provider]').forEach(el => el.onclick = () => { state.settings.provider = el.dataset.provider; state.settings.model = ''; state.models = []; render(); });
   const temp = root.querySelector('#temperature'); if (temp) temp.oninput = () => { root.querySelector('#temp-output').value = Number(temp.value).toFixed(1); };
   const form = root.querySelector('#settings-form'); if (form) form.onsubmit = event => { event.preventDefault(); const data = new FormData(form); if (state.settings.provider === 'openrouter') { state.settings.openrouterKey = data.get('apiKey').trim(); state.settings.openrouterBase = data.get('baseUrl').trim(); } else { state.settings.nvidiaKey = data.get('apiKey').trim(); state.settings.nvidiaBase = data.get('baseUrl').trim(); } state.settings.temperature = Number(data.get('temperature')); state.settings.maxTokens = Number(data.get('maxTokens')); state.settings.systemPrompt = data.get('systemPrompt').trim(); state.models = []; state.view = 'models'; persist(state); render(); refreshModels(); };
   const composer = root.querySelector('#composer'); if (composer) composer.onsubmit = event => { event.preventDefault(); sendPrompt(root.querySelector('#prompt').value); };
