@@ -68,7 +68,7 @@ function renderModels() {
   return `<main class="page"><header class="page-header"><button class="icon-btn" data-view="chat">${icon('arrow-left','Back')}</button><div><h2>Choose a model</h2><p>${providerLabel()} · ${filtered.length} available</p></div><button class="icon-btn ${state.loadingModels ? 'spin' : ''}" data-action="refresh-models">${icon('refresh-cw','Refresh')}</button></header>
     <div class="page-content narrow"><label class="search">${icon('search')}<input id="model-search" value="${esc(state.modelSearch)}" placeholder="Search models" /></label>
       <div class="notice green">All models returned by the selected provider are shown. Usage and billing follow your API account.</div>
-      <div class="model-list">${state.loadingModels ? '<div class="loader"></div>' : filtered.map(model => `<button class="model-card ${model.id === state.settings.model ? 'selected' : ''}" data-model="${esc(model.id)}">
+      <div class="model-list">${state.loadingModels ? '<div class="loader"></div>' : filtered.map(model => `<button class="model-card ${model.id === state.settings.model ? 'selected' : ''}" data-model="${esc(model.id)}" data-model-search="${esc(`${model.name} ${model.id} ${model.provider}`)}">
         <div class="model-icon">${model.provider.toLowerCase().includes('nvidia') ? 'NV' : model.provider.slice(0,2).toUpperCase()}</div><div><strong>${esc(model.name)}</strong><small>${esc(model.provider)}${model.contextLength ? ` · ${(model.contextLength/1000).toFixed(0)}K context` : ''}</small><p>${esc(model.description || model.id)}</p></div>${model.id === state.settings.model ? icon('check') : ''}</button>`).join('') || '<div class="empty-list">No models match your search.</div>'}</div>
     </div></main>`;
 }
@@ -124,8 +124,11 @@ function createConversation() {
 
 async function sendPrompt(value) {
   const files = state.attachments.splice(0);
-  const attachmentNote = files.length ? `\n\n[Attachments: ${files.map(file => `${file.name} (${file.type || file.kind})${file.extracted ? `\n${file.extracted}` : ''}`).join(', ')}]` : '';
+  const attachmentNote = files.length ? `\n\n[Attached: ${files.map(file => `${file.name} (${file.type || file.kind})`).join(', ')}]` : '';
   const text = `${value.trim()}${attachmentNote}`.trim(); if (!text || state.generating) { state.attachments.push(...files); return; }
+  const webContext = await webSearchContext(value.trim());
+  const fileContext = files.filter(file => file.extracted).map(file => `\n[Private extracted content from ${file.name}]\n${file.extracted}`).join('');
+  const modelText = `${value.trim()}${attachmentNote}${fileContext}${webContext}`.trim();
   const chat = activeChat();
   if (chat.messages.length === 0) chat.title = text.replace(/\s+/g,' ').slice(0, 48);
   chat.messages.push({ id: crypto.randomUUID(), role: 'user', content: text }, { id: crypto.randomUUID(), role: 'assistant', content: '', model: state.settings.model });
@@ -134,7 +137,7 @@ async function sendPrompt(value) {
   const context = chat.messages.slice(0, -1).map(({ role, content }) => ({ role, content }));
   const requestUser = context.at(-1);
   const images = files.filter(file => file.dataUrl).map(file => ({ type: 'image_url', image_url: { url: file.dataUrl } }));
-  if (requestUser && images.length) requestUser.content = [{ type: 'text', text }, ...images];
+  if (requestUser) requestUser.content = images.length ? [{ type: 'text', text: modelText }, ...images] : modelText;
   try {
     await complete(state.settings, context, token => { target.content += token; persist(state); render(); }, state.aborter.signal);
     if (!target.content) target.content = 'The provider returned an empty response.';
@@ -151,6 +154,20 @@ async function sendPrompt(value) {
       if (!target.content) chat.messages.pop();
     }
   } finally { state.generating = false; state.aborter = null; persist(state); render(); }
+}
+
+async function webSearchContext(query) {
+  if (!/\b(search|web|internet|latest|current|today|news|look up)\b/i.test(query)) return '';
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=0`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!response.ok) return '';
+    const data = await response.json();
+    const rows = [data.AbstractText && `Source: ${data.AbstractSource || 'DuckDuckGo'}\n${data.AbstractText}`, ...(data.RelatedTopics || []).slice(0, 5).map(item => item.Text && `Source: ${item.FirstURL || 'web'}\n${item.Text}`)].filter(Boolean);
+    return rows.length ? `\n\n[Web search results — verify links before relying on them]\n${rows.join('\n\n')}` : '';
+  } catch { return ''; }
 }
 
 async function saveHandover(chat, reason, nextModel) {
@@ -181,7 +198,7 @@ function bind() {
   root.querySelectorAll('[data-prompt]').forEach(el => el.onclick = () => sendPrompt(el.dataset.prompt));
   root.querySelectorAll('[data-copy]').forEach(el => el.onclick = async () => { const msg = activeChat().messages.find(m => m.id === el.dataset.copy); if (msg) await navigator.clipboard.writeText(msg.content); });
   root.querySelectorAll('[data-model]').forEach(el => el.onclick = () => { state.settings.model = el.dataset.model; state.view = 'chat'; persist(state); render(); });
-  const search = root.querySelector('#model-search'); if (search) search.oninput = () => { state.modelSearch = search.value; render(); root.querySelector('#model-search')?.focus(); };
+  const search = root.querySelector('#model-search'); if (search) search.oninput = () => { state.modelSearch = search.value; const query = search.value.trim().toLowerCase(); root.querySelectorAll('.model-card').forEach(card => { card.hidden = !!query && !card.dataset.modelSearch.toLowerCase().includes(query); }); };
   root.querySelectorAll('[data-provider]').forEach(el => el.onclick = () => { state.settings.provider = el.dataset.provider; state.settings.model = ''; state.models = []; render(); });
   const temp = root.querySelector('#temperature'); if (temp) temp.oninput = () => { root.querySelector('#temp-output').value = Number(temp.value).toFixed(1); };
   const form = root.querySelector('#settings-form'); if (form) form.onsubmit = event => { event.preventDefault(); const data = new FormData(form); if (state.settings.provider === 'openrouter') { state.settings.openrouterKey = data.get('apiKey').trim(); state.settings.openrouterBase = data.get('baseUrl').trim(); } else if (state.settings.provider === 'nvidia') { state.settings.nvidiaKey = data.get('apiKey').trim(); state.settings.nvidiaBase = data.get('baseUrl').trim(); } else { state.settings.huggingfaceKey = data.get('apiKey').trim(); state.settings.huggingfaceBase = data.get('baseUrl').trim(); } state.settings.temperature = Number(data.get('temperature')); state.settings.maxTokens = Number(data.get('maxTokens')); state.settings.systemPrompt = data.get('systemPrompt').trim(); state.models = []; state.view = 'models'; persist(state); render(); refreshModels(); };
