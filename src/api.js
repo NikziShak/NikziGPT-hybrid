@@ -45,12 +45,21 @@ export async function listModels(settings) {
     const json = await response.json();
     return (json || []).map(item => ({ id: item.id, name: item.id, provider: 'Hugging Face', description: item.description || `Hugging Face text-generation model · ${Number(item.downloads || 0).toLocaleString()} downloads`, contextLength: 0, free: false }));
   }
+
+  if (settings.provider === 'gemini') {
+    if (!settings.geminiKey) return [];
+    const response = await fetch(`${cleanBase(settings.geminiBase)}/models?key=${encodeURIComponent(settings.geminiKey)}`);
+    if (!response.ok) throw new Error(await errorText(response) || `Google AI Studio catalog request failed (${response.status})`);
+    const json = await response.json();
+    return (json.models || []).filter(item => (item.supportedGenerationMethods || []).includes('generateContent')).map(item => ({ id: item.name.replace(/^models\//, ''), name: item.displayName || item.name, provider: 'Google AI Studio', description: item.description || 'Gemini model', contextLength: item.inputTokenLimit || 0, free: false }));
+  }
 }
 
 export async function complete(settings, messages, onToken, signal) {
-  const key = settings.provider === 'openrouter' ? settings.openrouterKey : settings.provider === 'nvidia' ? settings.nvidiaKey : settings.huggingfaceKey;
-  const label = settings.provider === 'openrouter' ? 'OpenRouter' : settings.provider === 'nvidia' ? 'NVIDIA' : 'Hugging Face';
+  const key = settings.provider === 'openrouter' ? settings.openrouterKey : settings.provider === 'nvidia' ? settings.nvidiaKey : settings.provider === 'huggingface' ? settings.huggingfaceKey : settings.geminiKey;
+  const label = settings.provider === 'openrouter' ? 'OpenRouter' : settings.provider === 'nvidia' ? 'NVIDIA' : settings.provider === 'huggingface' ? 'Hugging Face' : 'Google AI Studio';
   if (!key) throw new Error(`Add your ${label} API key in Settings.`);
+  if (settings.provider === 'gemini') return completeGemini(settings, messages, onToken, signal);
   const base = settings.provider === 'openrouter' ? settings.openrouterBase : settings.provider === 'nvidia' ? settings.nvidiaBase : settings.huggingfaceBase;
   const model = settings.model;
   const payloadMessages = settings.systemPrompt.trim()
@@ -92,4 +101,23 @@ export async function complete(settings, messages, onToken, signal) {
       } catch { /* wait for the next complete SSE frame */ }
     }
   }
+}
+
+async function completeGemini(settings, messages, onToken, signal) {
+  const contents = messages.map(message => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: (Array.isArray(message.content) ? message.content : [{ type: 'text', text: message.content }]).map(part => {
+    if (part.type === 'image_url' || part.type === 'file') {
+      const raw = part.image_url?.url || part.dataUrl || '';
+      const match = raw.match(/^data:([^;]+);base64,(.+)$/);
+      return match ? { inlineData: { mimeType: match[1], data: match[2] } } : { text: `[Attachment: ${part.name || 'file'}]` };
+    }
+    return { text: part.text || String(part.content || '') };
+  }) }));
+  const body = { contents, generationConfig: { temperature: Number(settings.temperature), maxOutputTokens: Number(settings.maxTokens) } };
+  if (settings.systemPrompt.trim()) body.systemInstruction = { parts: [{ text: settings.systemPrompt.trim() }] };
+  const response = await fetch(`${cleanBase(settings.geminiBase)}/models/${encodeURIComponent(settings.model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(settings.geminiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  if (!response.ok) throw new Error(await errorText(response) || 'Gemini request failed');
+  const reader = response.body?.getReader();
+  if (!reader) { const json = await response.json(); onToken(json.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('') || ''); return; }
+  const decoder = new TextDecoder(); let buffer = '';
+  while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const lines = buffer.split('\n'); buffer = lines.pop() || ''; for (const line of lines) { const data = line.trim().replace(/^data:\s*/, ''); if (!data) continue; try { const chunk = JSON.parse(data); const token = chunk.candidates?.[0]?.content?.parts?.map(part => part.text || '').join(''); if (token) onToken(token); } catch { /* wait for complete SSE frame */ } } }
 }
