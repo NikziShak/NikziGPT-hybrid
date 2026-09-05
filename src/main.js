@@ -174,7 +174,7 @@ async function webSearchContext(query) {
 
 async function saveHandover(chat, reason, nextModel) {
   const transcript = chat.messages.filter(item => item.content).map(item => `### ${item.role === 'user' ? 'User' : 'NikziGPT'}\n\n${item.content}`).join('\n\n');
-  const markdown = `# NikziGPT Handover\n\n_Last updated: ${new Date().toISOString()}_\n\n## Continuation context\n\nProvider: ${providerLabel()}\nNext model: ${nextModel}\nReason: ${reason}\n\n## Conversation\n\n${transcript || 'No completed messages yet.'}\n\n## Resume instructions\n\nContinue from the conversation above. Preserve user intent, avoid repeating completed work, and clearly state any assumptions.\n`;
+  const markdown = `# NikziGPT Handover\n\n_Last updated: ${new Date().toISOString()}_\n\n## Continuation context\n\nProvider: ${providerLabel()}\nNext model: ${nextModel}\nReason: ${reason}\n\n## Capabilities\n\nProvider catalogs, multimodal attachments, web-search context, and model fallback are enabled. Continue using the selected provider's supported MIME types and limits.\n\n## Conversation\n\n${transcript || 'No completed messages yet.'}\n\n## Resume instructions\n\nContinue from the conversation above. Preserve user intent, avoid repeating completed work, and clearly state any assumptions.\n`;
   if (window.nikziDesktop?.saveHandover) { try { await window.nikziDesktop.saveHandover(markdown); return; } catch { /* browser fallback */ } }
   const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'handover.md'; link.click();
